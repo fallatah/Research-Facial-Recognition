@@ -25,7 +25,7 @@ export default function Home()
     if (!cv) return; // stop if OpenCV is not ready
     if (haarLoadedRef.current) return; // stop if XML already loaded
 
-    const res = await fetch("/haar.xml"); // fetch Haar XML from public folder
+    const res = await fetch("/haar_face.xml"); // fetch Haar XML from public folder
     const buffer = await res.arrayBuffer(); // convert to array buffer
     const data = new Uint8Array(buffer); // convert buffer to byte array
 
@@ -57,7 +57,7 @@ export default function Home()
     await loadHaar(); // ensure Haar XML is loaded
 
     const classifier = new cv.CascadeClassifier(); // create classifier
-    classifier.load("haar.xml"); // load Haar XML from virtual FS
+    classifier.load("haar_face.xml"); // load Haar XML from virtual FS
 
     const srcColor = cv.imread(originalRef.current); // read original color image
 
