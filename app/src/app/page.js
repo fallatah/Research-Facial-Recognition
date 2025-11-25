@@ -11,6 +11,7 @@ export default function Home() {
   const grayRef = useRef(null);
   const cannyRef = useRef(null);
   const haarRef = useRef(null);
+  const haarLoadedRef = useRef(false);
 
   useEffect(() => {
     cvModule.then(mod => {
@@ -19,7 +20,20 @@ export default function Home() {
     });
   }, []);
 
+  const loadHaar = async () => {
+    if (!cv || haarLoadedRef.current) return;
+
+    const res = await fetch("/haar.xml");
+    const buffer = await res.arrayBuffer();
+    const data = new Uint8Array(buffer);
+
+    cv.FS_createDataFile("/", "haar.xml", data, true, false);
+    haarLoadedRef.current = true;
+  };
+
   const runCanny = () => {
+    if (!cv) return;
+
     const src = cv.imread(grayRef.current);
     const edges = new cv.Mat();
 
@@ -35,15 +49,17 @@ export default function Home() {
   };
 
   const runHaar = async () => {
+    if (!cv) return;
+
+    await loadHaar();
+
     const classifier = new cv.CascadeClassifier();
-	await classifier.load("/haar.xml");	
+    classifier.load("haar.xml");
 
     const src = cv.imread(grayRef.current);
     const faces = new cv.RectVector();
-    const tmp = new cv.Mat();
 
-    cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
-    classifier.detectMultiScale(tmp, faces, 1.1, 3, 0);
+    classifier.detectMultiScale(src, faces, 1.1, 3, 0);
 
     for (let i = 0; i < faces.size(); i++) {
       const r = faces.get(i);
@@ -62,12 +78,12 @@ export default function Home() {
     cv.imshow(h, src);
 
     src.delete();
-    tmp.delete();
     faces.delete();
+    classifier.delete();
   };
 
   const onFileChange = (e) => {
-    if (!ready) return;
+    if (!ready || !cv) return;
     const file = e.target.files[0];
     if (!file) return;
 
