@@ -3,68 +3,75 @@
 import { useState, useRef, useEffect } from "react";
 import cvModule from "@techstark/opencv-js";
 
-export default function Home() {
-  const [cv, setCv] = useState(null);
-  const [ready, setReady] = useState(false);
+export default function Home()
+{
+  const [cv, setCv] = useState(null); // store OpenCV instance
+  const [ready, setReady] = useState(false); // track when OpenCV is loaded
 
-  const originalRef = useRef(null);
-  const grayRef = useRef(null);
-  const cannyRef = useRef(null);
-  const haarRef = useRef(null);
-  const haarLoadedRef = useRef(false);
+  const originalRef = useRef(null); // canvas for the original image
+  const grayRef = useRef(null); // canvas for grayscale result
+  const cannyRef = useRef(null); // canvas for canny edges
+  const haarRef = useRef(null); // canvas for Haar face detection
+  const haarLoadedRef = useRef(false); // ensure Haar XML is loaded only once
 
   useEffect(() => {
-    cvModule.then(mod => {
-      setCv(mod);
-      setReady(true);
+    cvModule.then(mod => { // wait for OpenCV to be ready
+      setCv(mod); // store OpenCV instance
+      setReady(true); // mark OpenCV loaded
     });
-  }, []);
+  }, []); // run once on mount
 
   const loadHaar = async () => {
-    if (!cv || haarLoadedRef.current) return;
+    if (!cv) return; // stop if OpenCV is not ready
+    if (haarLoadedRef.current) return; // stop if XML already loaded
 
-    const res = await fetch("/haar.xml");
-    const buffer = await res.arrayBuffer();
-    const data = new Uint8Array(buffer);
+    const res = await fetch("/haar.xml"); // fetch Haar XML from public folder
+    const buffer = await res.arrayBuffer(); // convert to array buffer
+    const data = new Uint8Array(buffer); // convert buffer to byte array
 
-    cv.FS_createDataFile("/", "haar.xml", data, true, false);
-    haarLoadedRef.current = true;
+    cv.FS_createDataFile("/", "haar_face.xml", data, true, false); // mount XML inside OpenCV FS
+    haarLoadedRef.current = true; // mark as loaded
   };
 
   const runCanny = () => {
-    if (!cv) return;
+    if (!cv) return; // stop if OpenCV unavailable
 
-    const src = cv.imread(grayRef.current);
-    const edges = new cv.Mat();
+    const src = cv.imread(grayRef.current); // read grayscale image
+    const edges = new cv.Mat(); // output matrix
 
-    cv.Canny(src, edges, 50, 150, 3, false);
+    cv.Canny(src, edges, 50, 150, 3, false); // apply canny edge detection
 
-    const c = cannyRef.current;
-    c.width = src.cols;
-    c.height = src.rows;
-    cv.imshow(c, edges);
+    const c = cannyRef.current; // target canvas
+    c.width = src.cols; // match width
+    c.height = src.rows; // match height
 
-    src.delete();
-    edges.delete();
+    cv.imshow(c, edges); // draw result on canvas
+
+    src.delete(); // cleanup
+    edges.delete(); // cleanup
   };
 
   const runHaar = async () => {
-    if (!cv) return;
+    if (!cv) return; // stop if OpenCV not ready
 
-    await loadHaar();
+    await loadHaar(); // ensure Haar XML is loaded
 
-    const classifier = new cv.CascadeClassifier();
-    classifier.load("haar.xml");
+    const classifier = new cv.CascadeClassifier(); // create classifier
+    classifier.load("haar.xml"); // load Haar XML from virtual FS
 
-    const src = cv.imread(grayRef.current);
-    const faces = new cv.RectVector();
+    const srcColor = cv.imread(originalRef.current); // read original color image
 
-    classifier.detectMultiScale(src, faces, 1.1, 3, 0);
+    const gray = new cv.Mat(); // matrix for grayscale conversion
+    cv.cvtColor(srcColor, gray, cv.COLOR_RGBA2GRAY); // convert to grayscale internally
 
-    for (let i = 0; i < faces.size(); i++) {
-      const r = faces.get(i);
-      cv.rectangle(
-        src,
+    const faces = new cv.RectVector(); // store detected faces
+
+    classifier.detectMultiScale(gray, faces, 1.1, 3, 0); // detect faces
+
+    for (let i = 0; i < faces.size(); i++) { // loop through detected faces
+      const r = faces.get(i); // get face rectangle
+      cv.rectangle( // draw rectangle on color image
+        srcColor,
         { x: r.x, y: r.y },
         { x: r.x + r.width, y: r.y + r.height },
         [255, 0, 0, 255],
@@ -72,49 +79,53 @@ export default function Home() {
       );
     }
 
-    const h = haarRef.current;
-    h.width = src.cols;
-    h.height = src.rows;
-    cv.imshow(h, src);
+    const h = haarRef.current; // output canvas
+    h.width = srcColor.cols; // match width
+    h.height = srcColor.rows; // match height
 
-    src.delete();
-    faces.delete();
-    classifier.delete();
+    cv.imshow(h, srcColor); // show color image with rectangles
+
+    srcColor.delete(); // cleanup
+    gray.delete(); // cleanup
+    faces.delete(); // cleanup
+    classifier.delete(); // cleanup
   };
 
   const onFileChange = (e) => {
-    if (!ready || !cv) return;
-    const file = e.target.files[0];
-    if (!file) return;
+    if (!ready || !cv) return; // stop if OpenCV not ready
 
-    const img = new Image();
-    img.onload = async () => {
-      const canvas = originalRef.current;
-      const ctx = canvas.getContext("2d");
+    const file = e.target.files[0]; // get selected file
+    if (!file) return; // stop if no file
 
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+    const img = new Image(); // create image object
 
-      const src = cv.imread(canvas);
-      const gray = new cv.Mat();
+    img.onload = async () => { // when image loads
+      const canvas = originalRef.current; // original canvas reference
+      const ctx = canvas.getContext("2d"); // canvas context
 
-      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      canvas.width = img.width; // set canvas width
+      canvas.height = img.height; // set canvas height
+      ctx.drawImage(img, 0, 0); // draw uploaded image
 
-      const g = grayRef.current;
-      g.width = img.width;
-      g.height = img.height;
-      cv.imshow(g, gray);
+      const src = cv.imread(canvas); // read original image
+      const gray = new cv.Mat(); // matrix for grayscale output
 
-      src.delete();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY); // convert to grayscale
 
-      runCanny();
-      await runHaar();
+      const g = grayRef.current; // grayscale canvas
+      g.width = img.width; // match width
+      g.height = img.height; // match height
+      cv.imshow(g, gray); // draw grayscale image
 
-      gray.delete();
+      src.delete(); // cleanup
+
+      runCanny(); // auto run canny
+      await runHaar(); // auto run Haar
+
+      gray.delete(); // cleanup
     };
 
-    img.src = URL.createObjectURL(file);
+    img.src = URL.createObjectURL(file); // create local image URL
   };
 
   return (
