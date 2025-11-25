@@ -3,16 +3,21 @@
 import { useState, useRef, useEffect } from "react";
 import cvModule from "@techstark/opencv-js";
 
-export default function Home()
-{
-  const [cv, setCv] = useState(null);          // store OpenCV instance
-  const [ready, setReady] = useState(false);   // track when OpenCV is loaded
+export default function Home() {
+  const [cv, setCv] = useState(null);
+  const [ready, setReady] = useState(false);
 
-  const originalRef = useRef(null);            // canvas for the original image
-  const grayRef = useRef(null);                // canvas for grayscale result
-  const cannyRef = useRef(null);               // canvas for canny edges
-  const haarRef = useRef(null);                // canvas for Haar eye detection
-  const haarLoadedRef = useRef(false);         // ensure Haar XML is loaded only once
+  const originalRef = useRef(null);
+  const grayRef = useRef(null);
+  const cannyRef = useRef(null);
+
+  const haarFaceRef = useRef(null);
+  const haarEyeRef = useRef(null);
+  const haarSmileRef = useRef(null);
+
+  const haarFaceLoadedRef = useRef(false);
+  const haarEyeLoadedRef = useRef(false);
+  const haarSmileLoadedRef = useRef(false);
 
   useEffect(() => {
     cvModule.then(mod => {
@@ -21,24 +26,53 @@ export default function Home()
     });
   }, []);
 
-  const loadHaar = async () => {
+  const loadFaceCascade = async () => {
     if (!cv) return;
-    if (haarLoadedRef.current) return;
+    if (haarFaceLoadedRef.current) return;
 
-    // haar_face.xml in public folder should be an eye Haar cascade,
-    // for example haarcascade_eye.xml renamed to haar_face.xml
-    const res = await fetch("/haar_face.xml");
-    const buffer = await res.arrayBuffer();
-    const data = new Uint8Array(buffer);
+    try {
+      const res = await fetch("/haar_face.xml");
+      const buffer = await res.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      cv.FS_createDataFile("/", "haar_face.xml", data, true, false);
+    } catch (e) {
+      // ignore "file exists" or FS errors
+    }
+    haarFaceLoadedRef.current = true;
+  };
 
-    // mount XML inside OpenCV FS with the same name used in classifier.load
-    cv.FS_createDataFile("/", "haar_face.xml", data, true, false);
-    haarLoadedRef.current = true;
+  const loadEyeCascade = async () => {
+    if (!cv) return;
+    if (haarEyeLoadedRef.current) return;
+
+    try {
+      const res = await fetch("/haar_eye.xml");
+      const buffer = await res.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      cv.FS_createDataFile("/", "haar_eye.xml", data, true, false);
+    } catch (e) {
+      // ignore
+    }
+    haarEyeLoadedRef.current = true;
+  };
+
+  const loadSmileCascade = async () => {
+    if (!cv) return;
+    if (haarSmileLoadedRef.current) return;
+
+    try {
+      const res = await fetch("/haar_smile.xml");
+      const buffer = await res.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      cv.FS_createDataFile("/", "haar_smile.xml", data, true, false);
+    } catch (e) {
+      // ignore
+    }
+    haarSmileLoadedRef.current = true;
   };
 
   const runCanny = () => {
     if (!cv) return;
-
     const src = cv.imread(grayRef.current);
     const edges = new cv.Mat();
 
@@ -47,36 +81,48 @@ export default function Home()
     const c = cannyRef.current;
     c.width = src.cols;
     c.height = src.rows;
-
     cv.imshow(c, edges);
 
     src.delete();
     edges.delete();
   };
 
-  const runHaarEyes = async () => {
+  const runHaarFace = async () => {
     if (!cv) return;
 
-    await loadHaar();
+    await loadFaceCascade();
 
-    const classifier = new cv.CascadeClassifier();
-    classifier.load("haar_face.xml"); // this should now be an eye cascade
+    let classifier;
+    try {
+      classifier = new cv.CascadeClassifier();
+      const ok = classifier.load("haar_face.xml");
+      if (!ok) {
+        classifier.delete();
+        return;
+      }
+    } catch (e) {
+      if (classifier) classifier.delete();
+      return;
+    }
 
-    // read original color image
     const srcColor = cv.imread(originalRef.current);
-
-    // grayscale only for detection
     const gray = new cv.Mat();
     cv.cvtColor(srcColor, gray, cv.COLOR_RGBA2GRAY);
 
-    const eyes = new cv.RectVector();
+    const faces = new cv.RectVector();
 
-    // detect eyes
-    classifier.detectMultiScale(gray, eyes, 1.1, 3, 0);
+    try {
+      classifier.detectMultiScale(gray, faces, 1.1, 3, 0);
+    } catch (e) {
+      srcColor.delete();
+      gray.delete();
+      faces.delete();
+      classifier.delete();
+      return;
+    }
 
-    // draw rectangles on the color image for each detected eye
-    for (let i = 0; i < eyes.size(); i++) {
-      const r = eyes.get(i);
+    for (let i = 0; i < faces.size(); i++) {
+      const r = faces.get(i);
       cv.rectangle(
         srcColor,
         { x: r.x, y: r.y },
@@ -86,15 +132,126 @@ export default function Home()
       );
     }
 
-    // show result in the separate Haar canvas
-    const h = haarRef.current;
-    h.width = srcColor.cols;
-    h.height = srcColor.rows;
-    cv.imshow(h, srcColor);
+    const canvas = haarFaceRef.current;
+    canvas.width = srcColor.cols;
+    canvas.height = srcColor.rows;
+    cv.imshow(canvas, srcColor);
+
+    srcColor.delete();
+    gray.delete();
+    faces.delete();
+    classifier.delete();
+  };
+
+  const runHaarEyes = async () => {
+    if (!cv) return;
+
+    await loadEyeCascade();
+
+    let classifier;
+    try {
+      classifier = new cv.CascadeClassifier();
+      const ok = classifier.load("haar_eye.xml");
+      if (!ok) {
+        classifier.delete();
+        return;
+      }
+    } catch (e) {
+      if (classifier) classifier.delete();
+      return;
+    }
+
+    const srcColor = cv.imread(originalRef.current);
+    const gray = new cv.Mat();
+    cv.cvtColor(srcColor, gray, cv.COLOR_RGBA2GRAY);
+
+    const eyes = new cv.RectVector();
+
+    try {
+      classifier.detectMultiScale(gray, eyes, 1.1, 3, 0);
+    } catch (e) {
+      srcColor.delete();
+      gray.delete();
+      eyes.delete();
+      classifier.delete();
+      return;
+    }
+
+    for (let i = 0; i < eyes.size(); i++) {
+      const r = eyes.get(i);
+      cv.rectangle(
+        srcColor,
+        { x: r.x, y: r.y },
+        { x: r.x + r.width, y: r.y + r.height },
+        [0, 255, 0, 255],
+        2
+      );
+    }
+
+    const canvas = haarEyeRef.current;
+    canvas.width = srcColor.cols;
+    canvas.height = srcColor.rows;
+    cv.imshow(canvas, srcColor);
 
     srcColor.delete();
     gray.delete();
     eyes.delete();
+    classifier.delete();
+  };
+
+  const runHaarSmile = async () => {
+    if (!cv) return;
+
+    await loadSmileCascade();
+
+    let classifier;
+    try {
+      classifier = new cv.CascadeClassifier();
+      const ok = classifier.load("haar_smile.xml");
+      if (!ok) {
+        classifier.delete();
+        return;
+      }
+    } catch (e) {
+      if (classifier) classifier.delete();
+      return;
+    }
+
+    const srcColor = cv.imread(originalRef.current);
+    const gray = new cv.Mat();
+    cv.cvtColor(srcColor, gray, cv.COLOR_RGBA2GRAY);
+
+    const smiles = new cv.RectVector();
+
+    try {
+      classifier.detectMultiScale(gray, smiles, 1.1, 3, 0);
+    } catch (e) {
+      srcColor.delete();
+      gray.delete();
+      smiles.delete();
+      classifier.delete();
+      return;
+    }
+
+    for (let i = 0; i < smiles.size(); i++) {
+      const r = smiles.get(i);
+      cv.rectangle(
+        srcColor,
+        { x: r.x, y: r.y },
+        { x: r.x + r.width, y: r.y + r.height },
+        [0, 0, 255, 255],
+        2
+      );
+    }
+
+    const canvas = haarSmileRef.current;
+    canvas.width = srcColor.cols;
+    canvas.height = srcColor.rows;
+    cv.imshow(canvas, srcColor);
+
+    srcColor.delete();
+    gray.delete();
+    smiles.delete();
     classifier.delete();
   };
 
@@ -126,9 +283,10 @@ export default function Home()
 
       src.delete();
 
-      // auto run canny and eye detection
       runCanny();
+      await runHaarFace();
       await runHaarEyes();
+      await runHaarSmile();
 
       gray.delete();
     };
@@ -147,7 +305,10 @@ export default function Home()
       <canvas ref={originalRef} className="w-[200px]" />
       <canvas ref={grayRef} className="w-[200px]" />
       <canvas ref={cannyRef} className="w-[200px]" />
-      <canvas ref={haarRef} className="w-[200px]" />
+
+      <canvas ref={haarFaceRef} className="w-[200px]" />
+      <canvas ref={haarEyeRef} className="w-[200px]" />
+      <canvas ref={haarSmileRef} className="w-[200px]" />
     </div>
   );
 }
