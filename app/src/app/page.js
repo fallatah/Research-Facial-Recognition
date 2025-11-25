@@ -6,8 +6,11 @@ import cvModule from "@techstark/opencv-js";
 export default function Home() {
   const [cv, setCv] = useState(null);
   const [ready, setReady] = useState(false);
-  const canvasRef = useRef(null);
-  const resultRef = useRef(null);
+
+  const originalRef = useRef(null);
+  const grayRef = useRef(null);
+  const cannyRef = useRef(null);
+  const haarRef = useRef(null);
 
   useEffect(() => {
     cvModule.then(mod => {
@@ -16,14 +19,61 @@ export default function Home() {
     });
   }, []);
 
+  const runCanny = () => {
+    const src = cv.imread(grayRef.current);
+    const edges = new cv.Mat();
+
+    cv.Canny(src, edges, 50, 150, 3, false);
+
+    const c = cannyRef.current;
+    c.width = src.cols;
+    c.height = src.rows;
+    cv.imshow(c, edges);
+
+    src.delete();
+    edges.delete();
+  };
+
+  const runHaar = async () => {
+    const classifier = new cv.CascadeClassifier();
+	await classifier.load("/haar.xml");	
+
+    const src = cv.imread(grayRef.current);
+    const faces = new cv.RectVector();
+    const tmp = new cv.Mat();
+
+    cv.cvtColor(src, tmp, cv.COLOR_RGBA2GRAY);
+    classifier.detectMultiScale(tmp, faces, 1.1, 3, 0);
+
+    for (let i = 0; i < faces.size(); i++) {
+      const r = faces.get(i);
+      cv.rectangle(
+        src,
+        { x: r.x, y: r.y },
+        { x: r.x + r.width, y: r.y + r.height },
+        [255, 0, 0, 255],
+        2
+      );
+    }
+
+    const h = haarRef.current;
+    h.width = src.cols;
+    h.height = src.rows;
+    cv.imshow(h, src);
+
+    src.delete();
+    tmp.delete();
+    faces.delete();
+  };
+
   const onFileChange = (e) => {
     if (!ready) return;
     const file = e.target.files[0];
     if (!file) return;
 
     const img = new Image();
-    img.onload = () => {
-      const canvas = canvasRef.current;
+    img.onload = async () => {
+      const canvas = originalRef.current;
       const ctx = canvas.getContext("2d");
 
       canvas.width = img.width;
@@ -31,17 +81,21 @@ export default function Home() {
       ctx.drawImage(img, 0, 0);
 
       const src = cv.imread(canvas);
-      const dst = new cv.Mat();
+      const gray = new cv.Mat();
 
-      cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-      const resultCanvas = resultRef.current;
-      resultCanvas.width = img.width;
-      resultCanvas.height = img.height;
-      cv.imshow(resultCanvas, dst);
+      const g = grayRef.current;
+      g.width = img.width;
+      g.height = img.height;
+      cv.imshow(g, gray);
 
       src.delete();
-      dst.delete();
+
+      runCanny();
+      await runHaar();
+
+      gray.delete();
     };
 
     img.src = URL.createObjectURL(file);
@@ -55,8 +109,10 @@ export default function Home() {
         onChange={onFileChange}
       />
 
-      <canvas ref={canvasRef} className="w-[200px]"/>
-      <canvas ref={resultRef} className="w-[200px]"/>
+      <canvas ref={originalRef} className="w-[200px]" />
+      <canvas ref={grayRef} className="w-[200px]" />
+      <canvas ref={cannyRef} className="w-[200px]" />
+      <canvas ref={haarRef} className="w-[200px]" />
     </div>
   );
 }
