@@ -296,7 +296,7 @@ export default function Home() {
 
       <canvas ref={haarFaceRef} className="w-[200px]" />
       <canvas ref={haarEyeRef} className="w-[200px]" />
-      <canvas ref={haarSmileRef} className="w-[200px]" />
+      <canvas ref={haarSmileRef} className="w-[200px] mb-60" />
 
     </div>
   );
